@@ -1,0 +1,127 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.3.1)"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install GUI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb1-dev libxcb-render0-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev
+      - uses: swatinem/rust-cache@v2
+      - run: cargo test
+
+  build-linux:
+    name: Build (Linux x86_64)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install GUI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb1-dev libxcb-render0-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev
+      - uses: swatinem/rust-cache@v2
+      - run: cargo build --release --features gui --bins
+      - name: Stage binaries
+        run: |
+          mkdir -p stage
+          cp target/release/hdpassw target/release/hdpassw-gui stage/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-bin
+          path: stage/*
+          if-no-files-found: error
+
+  build-windows:
+    name: Build (Windows x64)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - name: Install mingw-w64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64 \
+            binutils-mingw-w64-x86-64
+      - uses: swatinem/rust-cache@v2
+        with:
+          key: windows
+      - run: cargo build --release --target x86_64-pc-windows-gnu --features gui --bins
+      - name: Stage binaries
+        run: |
+          mkdir -p stage
+          cp target/x86_64-pc-windows-gnu/release/hdpassw.exe \
+             target/x86_64-pc-windows-gnu/release/hdpassw-gui.exe stage/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-bin
+          path: stage/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Package assets
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
+          mkdir -p dist
+          # Windows bundle
+          mkdir -p win bundle-win
+          cp artifacts/windows-bin/*.exe bundle-win/
+          cp "docs/使用说明-Windows.txt" bundle-win/使用说明.txt
+          (cd bundle-win && zip -j "../dist/hdpassw-${TAG}-win64.zip" ./*)
+          # Linux bundle
+          mkdir -p bundle-linux
+          cp artifacts/linux-bin/hdpassw artifacts/linux-bin/hdpassw-gui bundle-linux/
+          cp README.zh-CN.md bundle-linux/
+          tar czf "dist/hdpassw-${TAG}-linux-x86_64.tar.gz" -C bundle-linux .
+          # Checksums
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          ls -la dist
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
+          NOTES_ARGS=(--generate-notes)
+          if [ -f ".github/releases/${TAG}.md" ]; then
+            NOTES_ARGS=(--notes-file ".github/releases/${TAG}.md")
+          fi
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            "${NOTES_ARGS[@]}" \
+            dist/*

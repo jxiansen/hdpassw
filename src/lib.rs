@@ -3,6 +3,7 @@
 pub mod clipboard;
 pub mod crypto;
 pub mod error;
+pub mod i18n;
 pub mod manager;
 pub mod pwned;
 pub mod session;

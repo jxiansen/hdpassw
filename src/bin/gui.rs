@@ -5,6 +5,9 @@
 //! Pure Rust, no webview — this binary links directly against the same
 //! crypto/session/store/manager code as the CLI via the `hdpassw` library.
 
+// Release builds on Windows are GUI apps: don't pop a console window.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::fs;
 use std::path::PathBuf;
 
@@ -12,6 +15,7 @@ use eframe::egui;
 use zeroize::Zeroizing;
 
 use hdpassw::crypto::{self, encode::Charset};
+use hdpassw::i18n::Lang;
 use hdpassw::session::Session;
 use hdpassw::store::{self, SiteStore};
 use hdpassw::{clipboard, manager};
@@ -115,20 +119,65 @@ fn suggestion_chips(ui: &mut egui::Ui, prefix: &str) -> Option<&'static str> {
     picked
 }
 
+/// Load a CJK-capable font so Chinese UI text renders. egui's built-in
+/// fonts cover Latin only — Chinese would show as tofu boxes. We look for
+/// a system font (Windows: Microsoft YaHei; Linux: Noto/WenQuanYi) and
+/// append it as a proportional fallback; if none is found the UI stays
+/// English-only tofu-free but Chinese strings would render as boxes.
+fn install_cjk_font(ctx: &egui::Context) {
+    const CANDIDATES: &[&str] = &[
+        // Windows
+        "C:\\Windows\\Fonts\\msyh.ttc",
+        "C:\\Windows\\Fonts\\msyh.ttf",
+        "C:\\Windows\\Fonts\\simhei.ttf",
+        "C:\\Windows\\Fonts\\simsun.ttc",
+        // Linux (WSLg included)
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+        // macOS
+        "/System/Library/Fonts/PingFang.ttc",
+    ];
+    for path in CANDIDATES {
+        if let Ok(data) = fs::read(path) {
+            let name = format!("cjk_{}", std::path::Path::new(path).file_stem().unwrap_or_default().to_string_lossy());
+            let mut fonts = egui::FontDefinitions::default();
+            fonts.font_data.insert(
+                name.clone(),
+                std::sync::Arc::new(egui::FontData::from_owned(data)),
+            );
+            for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+                fonts.families.entry(family).or_default().push(name.clone());
+            }
+            ctx.set_fonts(fonts);
+            return;
+        }
+    }
+}
+
 fn main() -> eframe::Result {
+    let lang = Lang::current();
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([460.0, 560.0]),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([460.0, 560.0])
+            .with_title(lang.window_title()),
         ..Default::default()
     };
 
     eframe::run_native(
         "hdpassw",
         options,
-        Box::new(|_cc| Ok(Box::new(App::default()))),
+        Box::new(|cc| {
+            install_cjk_font(&cc.egui_ctx);
+            Ok(Box::new(App::with_lang(lang)))
+        }),
     )
 }
 
 struct App {
+    /// UI language.
+    lang: Lang,
     /// Vault password entered by the user. Zeroed on drop and after use.
     password: Zeroizing<String>,
     /// Live session holding the derived master key, once unlocked.
@@ -162,7 +211,14 @@ struct App {
 
 impl Default for App {
     fn default() -> Self {
+        Self::with_lang(Lang::current())
+    }
+}
+
+impl App {
+    fn with_lang(lang: Lang) -> Self {
         Self {
+            lang,
             password: Zeroizing::default(),
             session: None,
             sites: SiteStore::default(),
@@ -186,6 +242,8 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.add_space(4.0);
+            self.language_switcher(ui);
+            ui.add_space(2.0);
 
             if self.session.is_none() {
                 self.unlock_screen(ui);
@@ -214,11 +272,42 @@ impl App {
         self.status_is_error = is_error;
     }
 
+    /// EN/中文 toggle in the top-right corner. The choice is written to a
+    /// marker file so it persists across launches (GUI and CLI share it).
+    fn language_switcher(&mut self, ui: &mut egui::Ui) {
+        // Wrap in `horizontal` so the right-to-left layout only claims one
+        // row's height — at panel top level `with_layout` would expand to
+        // the full remaining height and squeeze out everything below it.
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new(self.lang.language())
+                        .small()
+                        .color(egui::Color32::GRAY),
+                );
+                if ui
+                    .small_button(if self.lang == Lang::Zh { "English" } else { "中文" })
+                    .clicked()
+                {
+                    self.lang = if self.lang == Lang::Zh {
+                        Lang::En
+                    } else {
+                        Lang::Zh
+                    };
+                    self.lang.save_preference();
+                    ui.ctx()
+                        .send_viewport_cmd(egui::ViewportCommand::Title(self.lang.window_title()));
+                }
+            });
+        });
+    }
+
     fn unlock_screen(&mut self, ui: &mut egui::Ui) {
+        let l = self.lang;
         ui.vertical_centered(|ui| {
             ui.add_space(40.0);
             ui.heading(egui::RichText::new("hdpassw").size(32.0).strong());
-            ui.label("Deterministic password manager");
+            ui.label(l.app_tagline());
             ui.add_space(32.0);
 
             let vault = store::vault_path();
@@ -228,11 +317,11 @@ impl App {
             }
 
             ui.set_max_width(260.0);
-            ui.label("Vault password");
+            ui.label(l.vault_password());
             let resp = ui.add(egui::TextEdit::singleline(&mut *self.password).password(true));
             ui.add_space(8.0);
 
-            let unlock_clicked = ui.button("Unlock").clicked();
+            let unlock_clicked = ui.button(l.unlock()).clicked();
 
             if unlock_clicked
                 || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
@@ -245,6 +334,7 @@ impl App {
     /// First-run wizard: create a new seed phrase or restore an existing
     /// one, then encrypt it into a vault file — all without touching the CLI.
     fn setup_wizard(&mut self, ui: &mut egui::Ui, vault: &std::path::Path) {
+        let l = self.lang;
         let setup = self.setup.get_or_insert(SetupState {
             stage: SetupStage::Choice,
         });
@@ -259,14 +349,14 @@ impl App {
             egui::vec2(360.0, ui.available_height()),
             egui::Layout::top_down(egui::Align::Center),
             |ui| {
-                ui.label("No seed vault found yet.");
+                ui.label(l.no_vault());
                 ui.add_space(16.0);
 
                 match &mut setup.stage {
                     SetupStage::Choice => {
                         centered_button_row(ui, egui::vec2(170.0, 30.0), 2, 10.0, |ui, size| {
                             if ui
-                                .add_sized(size, egui::Button::new("Create new seed"))
+                                .add_sized(size, egui::Button::new(l.create_new_seed()))
                                 .clicked()
                             {
                                 let phrase = Zeroizing::new(crypto::generate().to_string());
@@ -276,7 +366,7 @@ impl App {
                                 });
                             }
                             if ui
-                                .add_sized(size, egui::Button::new("Restore existing seed"))
+                                .add_sized(size, egui::Button::new(l.restore_seed()))
                                 .clicked()
                             {
                                 next_stage = Some(SetupStage::Restore {
@@ -291,7 +381,7 @@ impl App {
                         written_down,
                     } => {
                         let words: Vec<&str> = phrase.split_whitespace().collect();
-                        ui.label(format!("Your seed phrase ({} words):", words.len()));
+                        ui.label(l.seed_phrase_label(words.len()));
                         ui.add_space(8.0);
 
                         // `Frame`/`Grid` always shrink-wrap to their content and
@@ -334,21 +424,19 @@ impl App {
 
                         ui.add_space(10.0);
                         ui.label(
-                            egui::RichText::new(
-                                "Write this down and store it offline. Never share it.",
-                            )
-                            .color(egui::Color32::from_rgb(230, 180, 60)),
+                            egui::RichText::new(l.write_it_down())
+                                .color(egui::Color32::from_rgb(230, 180, 60)),
                         );
                         ui.add_space(8.0);
-                        ui.checkbox(written_down, "I have written this down");
+                        ui.checkbox(written_down, l.i_wrote_it_down());
                         ui.add_space(8.0);
 
                         centered_button_row(ui, egui::vec2(110.0, 30.0), 2, 10.0, |ui, size| {
-                            if ui.add_sized(size, egui::Button::new("Back")).clicked() {
+                            if ui.add_sized(size, egui::Button::new(l.back())).clicked() {
                                 next_stage = Some(SetupStage::Choice);
                             }
                             ui.add_enabled_ui(*written_down, |ui| {
-                                if ui.add_sized(size, egui::Button::new("Continue")).clicked() {
+                                if ui.add_sized(size, egui::Button::new(l.continue_())).clicked() {
                                     let word_count = words.len();
                                     let quiz_size = 6.min(word_count);
                                     let mut positions = rand::seq::index::sample(
@@ -376,7 +464,7 @@ impl App {
                         error,
                     } => {
                         let words: Vec<&str> = phrase.split_whitespace().collect();
-                        ui.label("Quick check — enter these words from your seed phrase:");
+                        ui.label(l.quick_check());
                         ui.add_space(10.0);
 
                         const LABEL_WIDTH: f32 = 90.0;
@@ -395,7 +483,7 @@ impl App {
                                         .spacing([SPACING, 6.0])
                                         .show(ui, |ui| {
                                             for (slot, &word_idx) in positions.iter().enumerate() {
-                                                ui.label(format!("Word {}:", word_idx + 1));
+                                                ui.label(format!("{} {}:", l.word_no(), word_idx + 1));
                                                 ui.vertical(|ui| {
                                                     ui.add(
                                                         egui::TextEdit::singleline(
@@ -427,13 +515,13 @@ impl App {
                         }
 
                         centered_button_row(ui, egui::vec2(110.0, 30.0), 2, 10.0, |ui, size| {
-                            if ui.add_sized(size, egui::Button::new("Back")).clicked() {
+                            if ui.add_sized(size, egui::Button::new(l.back())).clicked() {
                                 next_stage = Some(SetupStage::ShowNew {
                                     phrase: phrase.clone(),
                                     written_down: true,
                                 });
                             }
-                            if ui.add_sized(size, egui::Button::new("Continue")).clicked() {
+                            if ui.add_sized(size, egui::Button::new(l.continue_())).clicked() {
                                 let all_correct = positions
                                     .iter()
                                     .zip(answers.iter())
@@ -452,15 +540,13 @@ impl App {
                                         }),
                                     });
                                 } else {
-                                    *error = "✗ One or more words don't match. Check your seed \
-                                               phrase and try again."
-                                        .to_string();
+                                    *error = l.quiz_mismatch().to_string();
                                 }
                             }
                         });
                     }
                     SetupStage::Restore { input, error } => {
-                        ui.label("Enter all words separated by spaces:");
+                        ui.label(l.enter_all_words());
                         ui.add_space(6.0);
                         ui.add(egui::TextEdit::multiline(input).desired_rows(3));
 
@@ -493,10 +579,10 @@ impl App {
                         }
 
                         centered_button_row(ui, egui::vec2(110.0, 30.0), 2, 10.0, |ui, size| {
-                            if ui.add_sized(size, egui::Button::new("Back")).clicked() {
+                            if ui.add_sized(size, egui::Button::new(l.back())).clicked() {
                                 next_stage = Some(SetupStage::Choice);
                             }
-                            if ui.add_sized(size, egui::Button::new("Continue")).clicked() {
+                            if ui.add_sized(size, egui::Button::new(l.continue_())).clicked() {
                                 let normalized = input
                                     .split_whitespace()
                                     .map(|w| w.to_lowercase())
@@ -526,23 +612,23 @@ impl App {
                         pw2,
                         previous,
                     } => {
-                        ui.label("Choose a vault password:");
+                        ui.label(l.choose_vault_pw());
                         ui.add_space(6.0);
-                        ui.label("Password");
+                        ui.label(l.password());
                         ui.add(egui::TextEdit::singleline(&mut **pw1).password(true));
                         ui.add_space(4.0);
-                        ui.label("Confirm password");
+                        ui.label(l.confirm_password());
                         ui.add(egui::TextEdit::singleline(&mut **pw2).password(true));
                         ui.add_space(10.0);
 
                         let mut save_clicked = false;
                         centered_button_row(ui, egui::vec2(150.0, 30.0), 2, 10.0, |ui, size| {
-                            if ui.add_sized(size, egui::Button::new("Back")).clicked() {
+                            if ui.add_sized(size, egui::Button::new(l.back())).clicked() {
                                 next_stage =
                                     Some(std::mem::replace(previous.as_mut(), SetupStage::Choice));
                             }
                             if ui
-                                .add_sized(size, egui::Button::new("Save vault & unlock"))
+                                .add_sized(size, egui::Button::new(l.save_vault_unlock()))
                                 .clicked()
                             {
                                 save_clicked = true;
@@ -551,10 +637,10 @@ impl App {
 
                         if save_clicked {
                             if pw1.is_empty() {
-                                self.status = "✗ Password cannot be empty".to_string();
+                                self.status = l.pw_empty().to_string();
                                 self.status_is_error = true;
                             } else if pw1 != pw2 {
-                                self.status = "✗ Passwords do not match".to_string();
+                                self.status = l.pw_mismatch().to_string();
                                 self.status_is_error = true;
                             } else {
                                 finish = Some((phrase.clone(), pw1.to_string()));
@@ -577,6 +663,7 @@ impl App {
     /// Encrypt `phrase` into the vault file at `vault`, then unlock a
     /// session directly so the user lands on the main screen.
     fn complete_setup(&mut self, vault: &std::path::Path, phrase: &str, password: &str) {
+        let l = self.lang;
         let result = crypto::vault_seal(phrase, password).and_then(|data| {
             if let Some(parent) = vault.parent() {
                 fs::create_dir_all(parent).map_err(hdpassw::error::Error::Io)?;
@@ -598,7 +685,7 @@ impl App {
                 self.session = Some(session);
                 self.sites = store::load(&self.db_path).unwrap_or_default();
                 self.setup = None;
-                self.set_status("✓ Vault created and unlocked", false);
+                self.set_status(l.vault_created(), false);
             }
             Err(e) => self.set_status(format!("✗ {e}"), true),
         }
@@ -623,42 +710,40 @@ impl App {
     }
 
     fn main_screen(&mut self, ui: &mut egui::Ui) {
+        let l = self.lang;
         let mut run_pwned_check = false;
         let mut run_rotate = false;
 
         ui.horizontal(|ui| {
-            ui.heading("Sites");
+            ui.heading(l.sites());
             ui.label(
-                egui::RichText::new(format!("rotation /{}", self.sites.rotation))
+                egui::RichText::new(format!("{} /{}", l.rotation(), self.sites.rotation))
                     .color(egui::Color32::GRAY),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Lock").clicked() {
+                if ui.button(l.lock()).clicked() {
                     self.session = None;
                     self.sites = SiteStore::default();
                     self.show_add_form = false;
                     self.status.clear();
                 }
                 let add_label = if self.show_add_form {
-                    "Cancel"
+                    l.cancel()
                 } else {
-                    "+ Add site"
+                    l.add_site()
                 };
                 if ui.button(add_label).clicked() {
                     self.show_add_form = !self.show_add_form;
                 }
                 if ui
-                    .add_enabled(!self.sites.sites.is_empty(), egui::Button::new("Test if pwned"))
+                    .add_enabled(!self.sites.sites.is_empty(), egui::Button::new(l.test_if_pwned()))
                     .clicked()
                 {
                     run_pwned_check = true;
                 }
                 if ui
-                    .button("Rotate")
-                    .on_hover_text(
-                        "Bump the global rotation counter only — sites are flagged behind, \
-                         not changed. Use \"Bump\" on a site to actually change its password.",
-                    )
+                    .button(l.rotate())
+                    .on_hover_text(l.rotate_hint())
                     .clicked()
                 {
                     run_rotate = true;
@@ -679,7 +764,7 @@ impl App {
         }
 
         if self.sites.sites.is_empty() {
-            ui.label("No sites saved yet. Click \"+ Add site\" to create one.");
+            ui.label(l.no_sites());
             return;
         }
 
@@ -720,7 +805,7 @@ impl App {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui.button("Generate & copy").clicked() {
+                                    if ui.button(l.generate_copy()).clicked() {
                                         to_copy = Some((
                                             site.clone(),
                                             record.user.clone(),
@@ -731,23 +816,23 @@ impl App {
                                     }
                                     match in_progress {
                                         Some(0) => {
-                                            if ui.button("Copy old password").clicked() {
+                                            if ui.button(l.copy_old_pw()).clicked() {
                                                 advance_bump = true;
                                             }
-                                            if ui.button("Cancel").clicked() {
+                                            if ui.button(l.cancel()).clicked() {
                                                 cancel_bump = true;
                                             }
                                         }
                                         Some(_) => {
-                                            if ui.button("Copy new password & save").clicked() {
+                                            if ui.button(l.copy_new_pw_save()).clicked() {
                                                 advance_bump = true;
                                             }
-                                            if ui.button("Cancel").clicked() {
+                                            if ui.button(l.cancel()).clicked() {
                                                 cancel_bump = true;
                                             }
                                         }
                                         None if behind => {
-                                            if ui.button("Bump").clicked() {
+                                            if ui.button(l.bump()).clicked() {
                                                 let new = if record.counter < rotation {
                                                     rotation
                                                 } else {
@@ -772,7 +857,7 @@ impl App {
             let result = generate_and_copy(session, &site, &user, counter, length, &charset_str);
             match result {
                 Ok(()) => self.set_status(
-                    format!("✓ Copied password for {site} — clears in 30s"),
+                    format!("✓ {site}: {}", l.copied_pw()),
                     false,
                 ),
                 Err(e) => self.set_status(format!("✗ {e}"), true),
@@ -789,7 +874,7 @@ impl App {
 
         if cancel_bump {
             self.bump_in_progress = None;
-            self.set_status("Bump cancelled — nothing saved", false);
+            self.set_status(l.bump_cancelled(), false);
         }
 
         if run_pwned_check {
@@ -806,6 +891,7 @@ impl App {
     /// If either step fails, `bump_in_progress` is left as-is so the user
     /// can retry without losing their place.
     fn advance_bump(&mut self) {
+        let l = self.lang;
         let Some((site, old, new, step)) = self.bump_in_progress.clone() else {
             return;
         };
@@ -832,9 +918,7 @@ impl App {
             }
             self.bump_in_progress = Some((site.clone(), old, new, 1));
             self.set_status(
-                format!(
-                    "✓ Copied OLD password for {site} — log in, then click \"Copy new password & save\""
-                ),
+                format!("✓ {site}: {}", l.copied_old_pw()),
                 false,
             );
             return;
@@ -874,7 +958,7 @@ impl App {
 
         self.bump_in_progress = None;
         self.set_status(
-            format!("✓ Saved: {site} is now at /{new} — new password copied, paste it on the site"),
+            format!("✓ {site} → /{new}: {}", l.saved_now_at()),
             false,
         );
     }
@@ -894,12 +978,19 @@ impl App {
         }
 
         let stale = self.sites.sites.values().filter(|r| r.counter < new).count();
+        let l = self.lang;
         self.set_status(
             if stale == 0 {
-                format!("✓ Rotation /{old} → /{new} — every site is already caught up")
+                format!("✓ {} /{} → /{} — {}", l.rotation(), old, new, l.rotation_done_all_caught_up())
             } else {
                 format!(
-                    "✓ Rotation /{old} → /{new} — {stale} site(s) now behind, use \"Bump\" to change them"
+                    "✓ {} /{} → /{} — {} {} {}",
+                    l.rotation(),
+                    old,
+                    new,
+                    stale,
+                    l.rotation_done_behind(),
+                    l.bump()
                 )
             },
             false,
@@ -910,6 +1001,7 @@ impl App {
     /// Been Pwned, then summarize results in the status line. Passwords
     /// are held only long enough to hash and check, never displayed.
     fn check_all_pwned(&mut self) {
+        let l = self.lang;
         let session = self.session.as_ref().expect("unlocked");
         let sites: Vec<_> = self
             .sites
@@ -942,15 +1034,16 @@ impl App {
 
         if breached.is_empty() {
             self.set_status(
-                format!("✓ Checked {} site(s) — none found in known breaches", sites.len()),
+                format!("✓ {}（{}）— {}", l.pwned_none(), sites.len(), l.sites()),
                 false,
             );
         } else {
             self.set_status(
                 format!(
-                    "⚠ {} of {} password(s) found in known breaches: {}",
+                    "⚠ {}/{} {}: {}",
                     breached.len(),
                     sites.len(),
+                    l.pwned_found_prefix(),
                     breached.join(", ")
                 ),
                 true,
@@ -961,37 +1054,38 @@ impl App {
     /// The "add new site" form. Lets you register a site so a password can
     /// be generated for it (and re-generated identically later).
     fn add_form(&mut self, ui: &mut egui::Ui) {
+        let l = self.lang;
         egui::Frame::group(ui.style())
             .inner_margin(egui::Margin::symmetric(10, 10))
             .show(ui, |ui| {
-                ui.label(egui::RichText::new("New site").strong());
+                ui.label(egui::RichText::new(l.new_site()).strong());
                 ui.add_space(6.0);
 
                 egui::Grid::new("add_site_grid")
                     .num_columns(2)
                     .spacing([12.0, 6.0])
                     .show(ui, |ui| {
-                        ui.label("Site");
+                        ui.label(l.site());
                         ui.text_edit_singleline(&mut self.new_site);
                         ui.end_row();
 
-                        ui.label("User");
+                        ui.label(l.user());
                         ui.text_edit_singleline(&mut self.new_user);
                         ui.end_row();
 
-                        ui.label("Counter");
+                        ui.label(l.counter());
                         ui.add(
                             egui::TextEdit::singleline(&mut self.new_counter).desired_width(60.0),
                         );
                         ui.end_row();
 
-                        ui.label("Length");
+                        ui.label(l.length());
                         ui.add(
                             egui::TextEdit::singleline(&mut self.new_length).desired_width(60.0),
                         );
                         ui.end_row();
 
-                        ui.label("Charset");
+                        ui.label(l.charset());
                         egui::ComboBox::from_id_salt("charset")
                             .selected_text(self.new_charset.as_str())
                             .show_ui(ui, |ui| {
@@ -1005,7 +1099,7 @@ impl App {
                             });
                         ui.end_row();
 
-                        ui.label("Notes");
+                        ui.label(l.notes());
                         ui.text_edit_singleline(&mut self.new_notes);
                         ui.end_row();
                     });
@@ -1013,40 +1107,36 @@ impl App {
                 if self.new_length.trim() != "32" || self.new_charset != Charset::default() {
                     ui.add_space(6.0);
                     ui.label(
-                        egui::RichText::new(
-                            "⚠ Length and charset feed into the derived password, but \
-                             aren't part of your seed phrase. If you change them from \
-                             the defaults, you'll need to remember these exact settings \
-                             (or keep this sites file) to regenerate this password later.",
-                        )
-                        .color(egui::Color32::from_rgb(230, 180, 60))
-                        .small(),
+                        egui::RichText::new(l.length_charset_warn())
+                            .color(egui::Color32::from_rgb(230, 180, 60))
+                            .small(),
                     );
                 }
 
                 ui.add_space(8.0);
-                if ui.button("Save").clicked() {
+                if ui.button(l.save()).clicked() {
                     self.save_new_site();
                 }
             });
     }
 
     fn save_new_site(&mut self) {
+        let l = self.lang;
         let site = self.new_site.trim().to_string();
         let user = self.new_user.trim().to_string();
 
         if site.is_empty() {
-            self.set_status("✗ Site name cannot be empty", true);
+            self.set_status(l.site_empty(), true);
             return;
         }
 
         let counter: u32 = match self.new_counter.trim().parse() {
             Ok(n) => n,
-            Err(_) => return self.set_status("✗ Counter must be a positive integer", true),
+            Err(_) => return self.set_status(l.counter_invalid(), true),
         };
         let length: usize = match self.new_length.trim().parse() {
             Ok(n) => n,
-            Err(_) => return self.set_status("✗ Length must be a positive integer", true),
+            Err(_) => return self.set_status(l.length_invalid(), true),
         };
         let notes = {
             let n = self.new_notes.trim();
@@ -1072,7 +1162,7 @@ impl App {
 
         match result {
             Ok(()) => {
-                self.set_status(format!("✓ Added {site}"), false);
+                self.set_status(format!("✓ {} {site}", l.added()), false);
                 self.new_site.clear();
                 self.new_user.clear();
                 self.new_counter = "1".to_string();

@@ -72,6 +72,25 @@ sudo ./install.sh --gui
 cargo test
 ```
 
+## 发布流程（云端构建）
+
+发布完全在 GitHub Actions 上进行，本地不需要编译：
+
+1. 修改 `Cargo.toml` 版本号，更新 `CHANGELOG.md`
+2. 可选：新增发布说明 `.github/releases/vX.Y.Z.md`
+3. 提交并推送 `master`
+4. 打标签并推送：
+
+```bash
+git tag -a vX.Y.Z -m "vX.Y.Z"
+git push origin vX.Y.Z
+```
+
+推送 tag 后，Release 工作流会自动在云端完成：Linux 测试 → Linux/Windows 构建 →
+打包（含校验和）→ 创建 GitHub Release 并上传资产。
+
+如需手动触发：Actions → Release → Run workflow，填入 tag。
+
 ## 安全提醒
 
 助记词是唯一秘密，丢失无法找回；不要截图、不要存网盘、不要发聊天软件。

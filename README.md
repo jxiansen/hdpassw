@@ -18,6 +18,11 @@ Windows 版无需 WSL，双击 `hdpassw-gui.exe` 即可使用；中文说明见
 本仓库是 [whitepiratesmith/hdpassw](https://github.com/whitepiratesmith/hdpassw)
 的 fork，新增 **Windows 原生构建** 与 **中文界面**。
 
+Releases are built entirely in GitHub Actions: pushing a `v*` tag runs tests,
+cross-compiles Linux/Windows binaries, and publishes the release with
+checksums. The step-by-step process is documented in
+[README.zh-CN.md](README.zh-CN.md).
+
 ## How it works
 
 ```

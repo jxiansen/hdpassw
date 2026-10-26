@@ -12,6 +12,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-26
+
+### Added
+- **Windows support**: native 64-bit builds (`x86_64-pc-windows-gnu`),
+  cross-compiled from Linux/WSL with `build-win.sh`; release GUI builds
+  hide the console window, and the vault/metadata live in
+  `%APPDATA%\hdpassw`
+- **Chinese (Simplified) UI**: complete EN/中文 GUI translation with a
+  language switcher in the title row, OS-locale detection
+  (`HDPASSW_LANG` override), persisted preference, and automatic CJK
+  font loading (Microsoft YaHei / Noto / WenQuanYi / PingFang)
+- GitHub Actions CI: Linux test suite plus Windows cross-build artifacts
+- Docs: `README.zh-CN.md` and the Windows usage guide under `docs/`
+
+### Changed
+- `Cargo.lock` is now committed for reproducible release builds
+
 ## [0.2.2] — 2026-06-19
 
 ### Added

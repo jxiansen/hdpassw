@@ -8,6 +8,16 @@ Built for cryptography enthusiasts — no blockchain, no coins, just strong dete
 
 **https://hdpassw.com**
 
+## Download / 下载
+
+Prebuilt binaries are on the [releases page](https://github.com/jxiansen/hdpassw/releases):
+Windows 64-bit (`.zip`) and Linux x86_64 (`.tar.gz`).
+Windows 版无需 WSL，双击 `hdpassw-gui.exe` 即可使用；中文说明见
+[README.zh-CN.md](README.zh-CN.md) 和 [docs/使用说明-Windows.txt](docs/使用说明-Windows.txt)。
+
+本仓库是 [whitepiratesmith/hdpassw](https://github.com/whitepiratesmith/hdpassw)
+的 fork，新增 **Windows 原生构建** 与 **中文界面**。
+
 ## How it works
 
 ```

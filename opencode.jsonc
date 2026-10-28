@@ -1,0 +1,57 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // ── hdpassw 项目级 OpenCode 配置 ──────────────────────────────────────────
+  // 保存后自动生效，无需重启 OpenCode（配置文件会被热加载）。
+
+  // 每次会话额外加载的上下文。这是密码学敏感项目：
+  // BLAKE3 context、scrypt salt 等常量被 ALGORITHM.md 冻结，
+  // 改任何 crypto/ 下的代码前必须先对照规范；SECURITY.md 是威胁模型。
+  "instructions": [
+    "ALGORITHM.md",
+    "SECURITY.md"
+  ],
+
+  // 权限规则：按顺序匹配、最后命中的生效，所以先写兜底、再写例外。
+  // 未匹配任何规则的默认行为是 ask。
+  "permissions": [
+    { "action": "shell", "resource": "*", "effect": "ask" },
+
+    // git 只读操作
+    { "action": "shell", "resource": "git status *", "effect": "allow" },
+    { "action": "shell", "resource": "git diff *", "effect": "allow" },
+    { "action": "shell", "resource": "git log *", "effect": "allow" },
+
+    // Rust 日常开发环
+    { "action": "shell", "resource": "cargo build *", "effect": "allow" },
+    { "action": "shell", "resource": "cargo test *", "effect": "allow" },
+    { "action": "shell", "resource": "cargo check *", "effect": "allow" },
+    { "action": "shell", "resource": "cargo clippy *", "effect": "allow" },
+    { "action": "shell", "resource": "cargo fmt *", "effect": "allow" },
+
+    // Makefile 里的 CI 门禁 / 构建目标
+    { "action": "shell", "resource": "make test *", "effect": "allow" },
+    { "action": "shell", "resource": "make check *", "effect": "allow" },
+    { "action": "shell", "resource": "make build *", "effect": "allow" },
+
+    // 防误发布：本项目走 GitHub Actions 打 v* 标签发版，本地不需要 publish
+    { "action": "shell", "resource": "cargo publish *", "effect": "deny" }
+  ],
+
+  // 编辑后自动格式化。这里实际只会触发 rustfmt（.rs）——
+  // 其他内建格式化器因缺少对应命令或项目依赖不会运行。
+  "formatter": true,
+
+  // 构建产物不触发文件监视（.gitignore 已排除，但 watcher 看的是文件系统）
+  "watcher": {
+    "ignore": ["target/**", "dist/**"]
+  },
+
+  // /verify —— 一键跑与 CI 完全相同的门禁
+  "commands": {
+    "verify": {
+      "description": "运行完整 CI 门禁（test + clippy + fmt）",
+      "template": "Run the full CI gate for this repository: `cargo test --all`, then `cargo clippy --all-targets -- -D warnings`, then `cargo fmt --check`. Report each step's result and fix any failures."
+    }
+  }
+}

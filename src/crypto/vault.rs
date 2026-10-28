@@ -12,7 +12,7 @@
 ///   salt       = "<hex>" # 32-byte random salt
 ///   nonce      = "<hex>" # 12-byte random nonce
 ///   ciphertext = "<hex>" # encrypted mnemonic + 16-byte Poly1305 tag
-
+///
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
@@ -69,7 +69,8 @@ pub fn seal(phrase: &str, password: &str) -> Result<Vec<u8>> {
 /// Returns `Err` with a clear message on wrong password or corrupt file.
 pub fn open(data: &[u8], password: &str) -> Result<Zeroizing<String>> {
     let vf: VaultFile = toml::from_str(
-        std::str::from_utf8(data).map_err(|_| Error::Vault("vault file is not valid UTF-8".into()))?,
+        std::str::from_utf8(data)
+            .map_err(|_| Error::Vault("vault file is not valid UTF-8".into()))?,
     )
     .map_err(|e| Error::Vault(format!("vault file is corrupt: {e}")))?;
 

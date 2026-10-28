@@ -14,12 +14,11 @@ use crate::cli::GenArgs;
 /// `"github.com/2"` → `("github.com", Some(2))`
 /// `"github.com"`   → `("github.com", None)`
 fn split_site_gen(raw: &str) -> (String, Option<u32>) {
-    if let Some(pos) = raw.rfind('/') {
-        if let Ok(n) = raw[pos + 1..].parse::<u32>() {
-            if n > 0 {
-                return (raw[..pos].to_string(), Some(n));
-            }
-        }
+    if let Some(pos) = raw.rfind('/')
+        && let Ok(n) = raw[pos + 1..].parse::<u32>()
+        && n > 0
+    {
+        return (raw[..pos].to_string(), Some(n));
     }
     (raw.to_string(), None)
 }
@@ -31,9 +30,7 @@ pub fn run(args: GenArgs, db_path: &Path, session: &Session) -> Result<()> {
     // Warn if 90+ days without a rotation
     let days = (Local::now().date_naive() - st.rotation_since).num_days();
     if days >= 90 {
-        eprintln!(
-            "  ⚠  {days} days since last rotation — consider running: hdpassw rotate"
-        );
+        eprintln!("  ⚠  {days} days since last rotation — consider running: hdpassw rotate");
     }
 
     // Strip trailing /N from site name — treat it as a counter override

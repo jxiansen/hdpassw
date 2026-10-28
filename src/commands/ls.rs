@@ -51,30 +51,37 @@ pub fn run(args: LsArgs, db_path: &Path) -> Result<()> {
     let stale_count = sites.iter().filter(|(_, r)| r.counter < rotation).count();
 
     // Header line
-    eprint!("  Global rotation: /{rotation}  ·  since {}", st.rotation_since);
+    eprint!(
+        "  Global rotation: /{rotation}  ·  since {}",
+        st.rotation_since
+    );
     if days >= 90 {
         eprintln!("  ⚠  {days} days — run: hdpassw rotate");
     } else {
         eprintln!("  ({days} days)");
     }
     if stale_count > 0 {
-        eprintln!(
-            "  {stale_count} site(s) behind — run hdpassw bump <site> to catch up"
-        );
+        eprintln!("  {stale_count} site(s) behind — run hdpassw bump <site> to catch up");
     }
     eprintln!();
 
     // Width: site name + optional /N suffix + stale flag
     let name_w = sites
         .iter()
-        .map(|(n, r)| if r.counter > 1 { n.len() + 1 + r.counter.to_string().len() } else { n.len() })
+        .map(|(n, r)| {
+            if r.counter > 1 {
+                n.len() + 1 + r.counter.to_string().len()
+            } else {
+                n.len()
+            }
+        })
         .max()
         .unwrap_or(4)
         .max(4);
 
     println!(
-        "{:<name_w$}    {:>4}  {:<12}  {}",
-        "SITE", "LEN", "CHARSET", "MODIFIED"
+        "{:<name_w$}    {:>4}  {:<12}  MODIFIED",
+        "SITE", "LEN", "CHARSET"
     );
     println!("{}", "─".repeat(name_w + 34));
 

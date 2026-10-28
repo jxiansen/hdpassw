@@ -44,6 +44,7 @@ impl Charset {
         }
     }
 
+    #[allow(clippy::should_implement_trait)] // intentionally simple, not a FromStr impl
     pub fn from_str(s: &str) -> Result<Self> {
         match s {
             "alpha" => Ok(Charset::Alpha),

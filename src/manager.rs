@@ -26,6 +26,7 @@ pub fn generate_password(
 /// Insert or update a site record, computing its verifier from `session`.
 /// Preserves the original `created` date if the site already exists.
 /// Does not persist `store` to disk — call `store::save` afterwards.
+#[allow(clippy::too_many_arguments)] // mirrors the SiteRecord fields one-to-one
 pub fn upsert_site(
     store: &mut SiteStore,
     session: &Session,

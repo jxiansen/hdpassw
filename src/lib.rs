@@ -3,6 +3,8 @@
 pub mod clipboard;
 pub mod crypto;
 pub mod error;
+#[cfg(feature = "gui")]
+pub mod gui;
 pub mod i18n;
 pub mod manager;
 pub mod pwned;

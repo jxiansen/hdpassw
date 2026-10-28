@@ -23,6 +23,9 @@ path = "src/lib.rs"
 
 [features]
 gui = ["eframe", "egui"]
+# Test-only hooks: lets integration tests render the UI headlessly. Never
+# enabled for release builds.
+gui-preview = ["gui"]
 
 [dependencies]
 # Cryptography
@@ -69,3 +72,6 @@ libc        = "0.2"
 strip     = true
 opt-level = "z"
 lto       = true
+
+[dev-dependencies]
+egui_kittest = { version = "0.32", features = ["wgpu"] }

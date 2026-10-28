@@ -37,20 +37,34 @@ hdpassw 是一个确定性的密码管理器：只记住一组 **24 个英文单
 
 ### 从源码构建 Windows 版
 
-```bash
-# 在 Linux/WSL 上交叉编译（需要 mingw-w64）
-rustup target add x86_64-pc-windows-gnu
-cargo build --release --target x86_64-pc-windows-gnu --features gui --bins
-# 产物：target/x86_64-pc-windows-gnu/release/hdpassw{,-gui}.exe
-```
-
-### 在 Windows 本机构建
-
-安装 Rust（https://rustup.rs）后：
+**推荐：在 Windows 本机开发**（MSVC 工具链，产物体积更小、调试体验最好）
 
 ```powershell
+# 一次性准备
+rustup target add x86_64-pc-windows-msvc
+
+# 构建（PowerShell 或 cmd）
 cargo build --release --features gui --bins
+# 产物：target\release\hdpassw.exe、target\release\hdpassw-gui.exe
 ```
+
+本仓库的 `.cargo/config.toml` 已为 Windows 目标开启 **静态 CRT 链接**，
+产物不依赖 `VCRUNTIME140.dll` 或 VC++ 运行库，拷到任意 64 位 Windows 都能直接运行。
+
+**在 Linux 上交叉编译**（CI 采用这种方式，无需 Windows 机器）
+
+```bash
+# 方式 A：GNU 目标，需要 mingw-w64
+sudo apt install gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+./build-win.sh                  # 产物在 target/x86_64-pc-windows-gnu/release/
+
+# 方式 B：MSVC 目标，用 cargo-xwin + LLVM（产物与 Windows 本机构建一致）
+cargo install cargo-xwin
+sudo apt install llvm
+./build-win.sh --msvc           # 产物在 target/x86_64-pc-windows-msvc/release/
+```
+
+两种产物都只依赖 Windows 系统 DLL，无需附带任何运行时文件。
 
 ## Linux 使用
 

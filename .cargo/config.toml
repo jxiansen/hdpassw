@@ -1,0 +1,20 @@
+# Build configuration for the Windows targets.
+#
+# hdpassw ships as a zip users are expected to double-click, so the binaries
+# must not depend on anything they have to install first:
+#
+#   * static CRT — no VCRUNTIME140.dll / VC++ Redistributable requirement
+#   * no mingw runtime DLLs — the GNU target already links those statically
+#
+# Both Windows targets get `+crt-static` for that reason. The setting is
+# scoped to the two target triples rather than `cfg(windows)` so it applies
+# when cross-compiling from Linux too.
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -18,6 +18,27 @@ Windows 版无需 WSL，双击 `hdpassw-gui.exe` 即可使用；中文说明见
 本仓库是 [whitepiratesmith/hdpassw](https://github.com/whitepiratesmith/hdpassw)
 的 fork，新增 **Windows 原生构建** 与 **中文界面**。
 
+### Windows development
+
+This fork targets **native Windows** — no WSL, no WSLg, no X server.
+
+```powershell
+rustup target add x86_64-pc-windows-msvc
+cargo build --release --features gui --bins
+# -> target\release\hdpassw.exe, target\release\hdpassw-gui.exe
+```
+
+`.cargo/config.toml` enables **static CRT linking** for the Windows targets, so
+the executables do not need `VCRUNTIME140.dll` or the VC++ Redistributable —
+copy them to any 64-bit Windows 10/11 machine and double-click.
+
+Cross-compiling from Linux (what CI does) also works:
+
+```bash
+./build-win.sh              # GNU target via mingw-w64
+./build-win.sh --msvc       # MSVC target via cargo-xwin + LLVM
+```
+
 Releases are built entirely in GitHub Actions: pushing a `v*` tag runs tests,
 cross-compiles Linux/Windows binaries, and publishes the release with
 checksums. The step-by-step process is documented in
